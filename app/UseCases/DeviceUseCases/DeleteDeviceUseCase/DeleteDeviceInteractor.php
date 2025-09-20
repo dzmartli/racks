@@ -57,7 +57,8 @@ class DeleteDeviceInteractor implements DeleteDeviceInputPort
         try {
             DB::table('racks')
                 ->where('id', $rack->getId())
-                ->lockForUpdate();
+                ->lockForUpdate()
+                ->get();
 
             $rack = $this->rackRepository->getById($rack->getId());
 

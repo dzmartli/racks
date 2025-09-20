@@ -81,7 +81,8 @@ class UpdateDeviceInteractor implements UpdateDeviceInputPort
         try {
             DB::table('racks')
                 ->where('id', $device->getRackId())
-                ->lockForUpdate();
+                ->lockForUpdate()
+                ->get();
 
             $rack = $this->rackRepository->getById($device->getRackId());
 

@@ -60,7 +60,10 @@ class CreateRoomInteractor implements CreateRoomInputPort
 
         DB::beginTransaction();
 
-        DB::table('room')->lockForUpdate();
+        DB::table('room')
+            ->where('building_id', $building->getId())
+            ->lockForUpdate()
+            ->get();
 
         $roomNamesList = $this->roomRepository->getNamesListByBuildingId($building->getId());
 

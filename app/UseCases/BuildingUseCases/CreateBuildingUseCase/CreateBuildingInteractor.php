@@ -60,7 +60,10 @@ class CreateBuildingInteractor implements CreateBuildingInputPort
 
         DB::beginTransaction();
 
-        DB::table('building')->lockForUpdate();
+        DB::table('building')
+            ->where('site_id', $site->getId())
+            ->lockForUpdate()
+            ->get();
 
         $buildingNamesList = $this->buildingRepository->getNamesListBySiteId($site->getId());
 

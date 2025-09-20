@@ -60,7 +60,10 @@ class CreateRackInteractor implements CreateRackInputPort
 
         DB::beginTransaction();
 
-        DB::table('rack')->lockForUpdate();
+        DB::table('rack')
+            ->where('room_id', $room->getId())
+            ->lockForUpdate()
+            ->get();
 
         $rackNamesList = $this->rackRepository->getNamesListByRoomId($room->getId());
 
