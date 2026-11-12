@@ -60,33 +60,38 @@ class UpdateBuildingInteractor implements UpdateBuildingInputPort
 
         DB::beginTransaction();
 
-        DB::table('building')
-            ->where('site_id', $site->getId())
-            ->lockForUpdate()
-            ->get();
-
-        $buildingNamesList = $this->buildingRepository->getNamesListBySiteId($site->getId());
-
-        // Name check (can not be repeated inside one site)
-        if (! $buildingUpdating->isNameValid($buildingUpdating->getName(), $buildingNamesList) &&
-            $building->getName() !== $buildingUpdating->getName()
-        ) {
-            return $this->output->buildingNameException(
-                resolve_proxy(UpdateBuildingResponseModel::class, ['building' => $buildingUpdating])
-            );
-        }
-
-        // Try to update
         try {
+            DB::table('sites')
+                ->where('id', $site->getId())
+                ->lockForUpdate()
+                ->first();
+
+            $buildingNamesList = $this->buildingRepository->getNamesListBySiteId($site->getId());
+
+            // Name check (can not be repeated inside one site)
+            if (! $buildingUpdating->isNameValid($buildingUpdating->getName(), $buildingNamesList) &&
+                $building->getName() !== $buildingUpdating->getName()
+            ) {
+                DB::rollBack();
+
+                return $this->output->buildingNameException(
+                    resolve_proxy(UpdateBuildingResponseModel::class, ['building' => $buildingUpdating])
+                );
+            }
+
             $buildingUpdating = $this->buildingRepository->update($buildingUpdating);
-        } catch (\Exception $e) {
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
             return $this->output->unableToUpdateBuilding(
                 resolve_proxy(UpdateBuildingResponseModel::class, ['building' => $buildingUpdating]),
                 $e
             );
         }
-
-        DB::commit();
 
         Log::channel('action_log')->info("Update Building --> pk {$building->getId()}", [
             'old_data' => $building->toArray(),

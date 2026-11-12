@@ -60,33 +60,38 @@ class CreateRoomInteractor implements CreateRoomInputPort
 
         DB::beginTransaction();
 
-        DB::table('room')
-            ->where('building_id', $building->getId())
-            ->lockForUpdate()
-            ->get();
-
-        $roomNamesList = $this->roomRepository->getNamesListByBuildingId($building->getId());
-
-        // Name check (can not be repeated inside one building)
-        if (! $room->isNameValid($room->getName(), $roomNamesList)) {
-            return $this->output->roomNameException(
-                resolve_proxy(CreateRoomResponseModel::class, ['room' => $room])
-            );
-        }
-
-        // Try to create
         try {
+            DB::table('buildings')
+                ->where('id', $building->getId())
+                ->lockForUpdate()
+                ->first();
+
+            $roomNamesList = $this->roomRepository->getNamesListByBuildingId($building->getId());
+
+            // Name check (can not be repeated inside one building)
+            if (! $room->isNameValid($room->getName(), $roomNamesList)) {
+                DB::rollBack();
+
+                return $this->output->roomNameException(
+                    resolve_proxy(CreateRoomResponseModel::class, ['room' => $room])
+                );
+            }
+
             $room = $this->roomRepository->create($room);
 
             $room = $room->fresh([]);
-        } catch (\Exception $e) {
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
             return $this->output->unableToCreateRoom(
                 resolve_proxy(CreateRoomResponseModel::class, ['room' => $room]),
                 $e
             );
         }
-
-        DB::commit();
 
         Log::channel('action_log')->info("Create Room --> fk {$building->getId()}", [
             'new_data' => $room->toArray(),

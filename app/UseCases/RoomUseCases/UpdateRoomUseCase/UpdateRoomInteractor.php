@@ -62,33 +62,38 @@ class UpdateRoomInteractor implements UpdateRoomInputPort
 
         DB::beginTransaction();
 
-        DB::table('room')
-            ->where('building_id', $building->getId())
-            ->lockForUpdate()
-            ->get();
-
-        $roomNamesList = $this->roomRepository->getNamesListByBuildingId($building->getId());
-
-        // Name check (can not be repeated inside one building)
-        if (! $roomUpdating->isNameValid($roomUpdating->getName(), $roomNamesList) &&
-            $room->getName() !== $roomUpdating->getName()
-        ) {
-            return $this->output->roomNameException(
-                resolve_proxy(UpdateRoomResponseModel::class, ['room' => $roomUpdating])
-            );
-        }
-
-        // Try to update
         try {
+            DB::table('buildings')
+                ->where('id', $building->getId())
+                ->lockForUpdate()
+                ->first();
+
+            $roomNamesList = $this->roomRepository->getNamesListByBuildingId($building->getId());
+
+            // Name check (can not be repeated inside one building)
+            if (! $roomUpdating->isNameValid($roomUpdating->getName(), $roomNamesList) &&
+                $room->getName() !== $roomUpdating->getName()
+            ) {
+                DB::rollBack();
+
+                return $this->output->roomNameException(
+                    resolve_proxy(UpdateRoomResponseModel::class, ['room' => $roomUpdating])
+                );
+            }
+
             $roomUpdating = $this->roomRepository->update($roomUpdating);
-        } catch (\Exception $e) {
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
             return $this->output->unableToUpdateRoom(
                 resolve_proxy(UpdateRoomResponseModel::class, ['room' => $roomUpdating]),
                 $e
             );
         }
-
-        DB::commit();
 
         Log::channel('action_log')->info("Update Room --> pk {$roomUpdating->getId()}", [
             'old_data' => $room->toArray(),

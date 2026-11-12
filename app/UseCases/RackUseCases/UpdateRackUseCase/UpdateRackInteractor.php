@@ -63,33 +63,38 @@ class UpdateRackInteractor implements UpdateRackInputPort
 
         DB::beginTransaction();
 
-        DB::table('rack')
-            ->where('room_id', $room->getId())
-            ->lockForUpdate()
-            ->get();
-
-        $rackNamesList = $this->rackRepository->getNamesListByRoomId($room->getId());
-
-        // Name check (can not be repeated inside one room)
-        if (! $rackUpdating->isNameValid($rackUpdating->getName(), $rackNamesList) &&
-            $rack->getName() !== $rackUpdating->getName()
-        ) {
-            return $this->output->rackNameException(
-                resolve_proxy(UpdateRackResponseModel::class, ['rack' => $rackUpdating])
-            );
-        }
-
-        // Try to update
         try {
+            DB::table('rooms')
+                ->where('id', $room->getId())
+                ->lockForUpdate()
+                ->first();
+
+            $rackNamesList = $this->rackRepository->getNamesListByRoomId($room->getId());
+
+            // Name check (can not be repeated inside one room)
+            if (! $rackUpdating->isNameValid($rackUpdating->getName(), $rackNamesList) &&
+                $rack->getName() !== $rackUpdating->getName()
+            ) {
+                DB::rollBack();
+
+                return $this->output->rackNameException(
+                    resolve_proxy(UpdateRackResponseModel::class, ['rack' => $rackUpdating])
+                );
+            }
+
             $rackUpdating = $this->rackRepository->update($rackUpdating);
-        } catch (\Exception $e) {
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
             return $this->output->unableToUpdateRack(
                 resolve_proxy(UpdateRackResponseModel::class, ['rack' => $rackUpdating]),
                 $e
             );
         }
-
-        DB::commit();
 
         Log::channel('action_log')->info("Update Rack --> pk {$rackUpdating->getId()}", [
             'old_data' => $rack->toArray(),

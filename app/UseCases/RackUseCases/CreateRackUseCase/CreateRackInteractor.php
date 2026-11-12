@@ -60,33 +60,38 @@ class CreateRackInteractor implements CreateRackInputPort
 
         DB::beginTransaction();
 
-        DB::table('rack')
-            ->where('room_id', $room->getId())
-            ->lockForUpdate()
-            ->get();
-
-        $rackNamesList = $this->rackRepository->getNamesListByRoomId($room->getId());
-
-        // Name check (can not be repeated inside one room)
-        if (! $rack->isNameValid($rack->getName(), $rackNamesList)) {
-            return $this->output->rackNameException(
-                resolve_proxy(CreateRackResponseModel::class, ['rack' => $rack])
-            );
-        }
-
-        // Try to create
         try {
+            DB::table('rooms')
+                ->where('id', $room->getId())
+                ->lockForUpdate()
+                ->first();
+
+            $rackNamesList = $this->rackRepository->getNamesListByRoomId($room->getId());
+
+            // Name check (can not be repeated inside one room)
+            if (! $rack->isNameValid($rack->getName(), $rackNamesList)) {
+                DB::rollBack();
+
+                return $this->output->rackNameException(
+                    resolve_proxy(CreateRackResponseModel::class, ['rack' => $rack])
+                );
+            }
+
             $rack = $this->rackRepository->create($rack);
 
             $rack = $rack->fresh([]);
-        } catch (\Exception $e) {
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
             return $this->output->unableToCreateRack(
                 resolve_proxy(CreateRackResponseModel::class, ['rack' => $rack]),
                 $e
             );
         }
-
-        DB::commit();
 
         Log::channel('action_log')->info("Create Rack --> fk {$room->getId()}", [
             'new_data' => $rack->toArray(),

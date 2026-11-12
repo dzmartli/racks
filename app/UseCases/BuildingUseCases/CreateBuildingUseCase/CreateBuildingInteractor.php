@@ -60,33 +60,38 @@ class CreateBuildingInteractor implements CreateBuildingInputPort
 
         DB::beginTransaction();
 
-        DB::table('building')
-            ->where('site_id', $site->getId())
-            ->lockForUpdate()
-            ->get();
-
-        $buildingNamesList = $this->buildingRepository->getNamesListBySiteId($site->getId());
-
-        // Name check (can not be repeated inside one site)
-        if (! $building->isNameValid($building->getName(), $buildingNamesList)) {
-            return $this->output->buildingNameException(
-                resolve_proxy(CreateBuildingResponseModel::class, ['building' => $building])
-            );
-        }
-
-        // Try to create
         try {
+            DB::table('sites')
+                ->where('id', $site->getId())
+                ->lockForUpdate()
+                ->first();
+
+            $buildingNamesList = $this->buildingRepository->getNamesListBySiteId($site->getId());
+
+            // Name check (can not be repeated inside one site)
+            if (! $building->isNameValid($building->getName(), $buildingNamesList)) {
+                DB::rollBack();
+
+                return $this->output->buildingNameException(
+                    resolve_proxy(CreateBuildingResponseModel::class, ['building' => $building])
+                );
+            }
+
             $building = $this->buildingRepository->create($building);
 
             $building = $building->fresh([]);
-        } catch (\Exception $e) {
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
             return $this->output->unableToCreateBuilding(
                 resolve_proxy(CreateBuildingResponseModel::class, ['building' => $building]),
                 $e
             );
         }
-
-        DB::commit();
 
         Log::channel('action_log')->info("Create Building --> fk {$site->getId()}", [
             'new_data' => $building->toArray(),
